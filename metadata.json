@@ -1,0 +1,6 @@
+{
+  "name": "Mifgash",
+  "description": "Cross-platform group event planning, shared calendars, flexible polls, and group chats where plans live.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,211 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated user profile with PII isolated to owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "nickname": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "email": { "type": "string", "maxLength": 200 },
+        "avatar": { "type": "string", "maxLength": 50000 },
+        "provider": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "nickname", "email", "avatar", "provider", "createdAt", "updatedAt"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Private invite-only planning group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "icon": { "type": "string", "maxLength": 50 },
+        "image": { "type": "string", "maxLength": 50000 },
+        "color": { "type": "string", "maxLength": 30 },
+        "inviteCode": { "type": "string", "minLength": 3, "maxLength": 80, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "memberIds": { "type": "array", "description": "UIDs of group members (max 50)" },
+        "membersMap": { "type": "object", "description": "Map of userId to non-PII Member profile" },
+        "planIds": { "type": "array", "description": "IDs of plans in this group (max 200)" },
+        "pollIds": { "type": "array", "description": "IDs of polls in this group (max 200)" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "description", "icon", "color", "inviteCode", "createdBy", "memberIds", "membersMap", "planIds", "pollIds", "createdAt", "updatedAt"]
+    },
+    "Invite": {
+      "title": "Invite",
+      "description": "Lookup document mapping inviteCode to groupId (get-only, no list)",
+      "type": "object",
+      "properties": {
+        "inviteCode": { "type": "string", "minLength": 3, "maxLength": 80, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["inviteCode", "groupId", "groupName", "createdBy", "createdAt"]
+    },
+    "Plan": {
+      "title": "Plan",
+      "description": "Shared group event or proposal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "groupColor": { "type": "string", "maxLength": 30 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "endDate": { "type": "string", "maxLength": 10 },
+        "startTime": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "endTime": { "type": "string", "maxLength": 20 },
+        "location": { "type": "string", "maxLength": 300 },
+        "distanceKm": { "type": "number" },
+        "weatherCondition": { "type": "string", "maxLength": 100 },
+        "categoryIcon": { "type": "string", "maxLength": 20 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "isProposal": { "type": "boolean" },
+        "isRecurring": { "type": "boolean" },
+        "recurrencePattern": { "type": "string", "maxLength": 100 },
+        "customRsvpOptions": { "type": "array", "description": "Optional custom RSVP labels" },
+        "memberIds": { "type": "array", "description": "UIDs of group members (max 50)" },
+        "rsvpMap": { "type": "object", "description": "Map of userId to RSVP entry" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "groupName", "groupColor", "title", "description", "date", "startTime", "endTime", "location", "createdBy", "createdByName", "isProposal", "memberIds", "rsvpMap", "createdAt", "updatedAt"]
+    },
+    "PlanComment": {
+      "title": "PlanComment",
+      "description": "Discussion comment on a specific plan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "userName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "userAvatar": { "type": "string", "maxLength": 50000 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "memberIds": { "type": "array", "description": "UIDs of group members (max 50)" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userName", "userAvatar", "text", "memberIds", "createdAt"]
+    },
+    "Poll": {
+      "title": "Poll",
+      "description": "Interactive group decision poll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "question": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "options": { "type": "array", "description": "Poll options (2..10)" },
+        "votesMap": { "type": "object", "description": "Map of userId to selected optionId" },
+        "memberIds": { "type": "array", "description": "UIDs of group members (max 50)" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAvatar": { "type": "string", "maxLength": 50000 },
+        "isClosed": { "type": "boolean" },
+        "winningOptionId": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "groupName", "question", "category", "options", "votesMap", "memberIds", "createdBy", "createdByName", "createdAvatar", "isClosed", "createdAt", "updatedAt"]
+    },
+    "GroupMessage": {
+      "title": "GroupMessage",
+      "description": "Chat message inside a group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "senderAvatar": { "type": "string", "maxLength": 50000 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "memberIds": { "type": "array", "description": "UIDs of group members (max 50)" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "senderId", "senderName", "senderAvatar", "text", "memberIds", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User-scoped activity notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["event_invite", "event_update", "rsvp_reminder", "poll_created", "comment_added"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "relatedEventId": { "type": "string", "maxLength": 128 },
+        "relatedPollId": { "type": "string", "maxLength": 128 },
+        "relatedGroupId": { "type": "string", "maxLength": 128 },
+        "read": { "type": "boolean" },
+        "actionRequired": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "title", "message", "senderId", "read", "createdAt"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User feedback submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "category": { "type": "string", "enum": ["suggestion", "issue", "question"] },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "category", "message", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Owner-only user profile document (isolates email PII)"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications subcollection"
+    },
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Private groups and hangouts"
+    },
+    "/groups/{groupId}/messages/{messageId}": {
+      "schema": "GroupMessage",
+      "description": "Group chat messages"
+    },
+    "/invites/{inviteCode}": {
+      "schema": "Invite",
+      "description": "Invite code to group lookup"
+    },
+    "/plans/{planId}": {
+      "schema": "Plan",
+      "description": "Shared group plans"
+    },
+    "/plans/{planId}/comments/{commentId}": {
+      "schema": "PlanComment",
+      "description": "Comments on a plan"
+    },
+    "/polls/{pollId}": {
+      "schema": "Poll",
+      "description": "Interactive group polls"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "User-submitted feedback"
+    }
+  }
+}

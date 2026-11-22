@@ -1,0 +1,503 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Hardened Primitives
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isGroupMember(groupId) {
+      return isValidId(groupId)
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+    }
+
+    function isUidInGroup(uid, groupId) {
+      return isValidId(groupId)
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'nickname', 'email', 'avatar', 'provider', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'nickname', 'email', 'avatar', 'provider', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.nickname is string && data.nickname.size() >= 1 && data.nickname.size() <= 60
+        && data.email is string && data.email.size() <= 200
+        && data.avatar is string && data.avatar.size() <= 50000
+        && data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMemberProfile(m) {
+      return m is map
+        && m.keys().hasAll(['id', 'name', 'nickname', 'avatar'])
+        && m.keys().hasOnly(['id', 'name', 'nickname', 'avatar', 'role'])
+        && isValidId(m.id)
+        && m.name is string && m.name.size() >= 1 && m.name.size() <= 100
+        && m.nickname is string && m.nickname.size() >= 1 && m.nickname.size() <= 60
+        && m.avatar is string && m.avatar.size() <= 50000
+        && (!('role' in m) || (m.role is string && m.role.size() <= 30));
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'description', 'icon', 'color', 'inviteCode', 'createdBy', 'memberIds', 'membersMap', 'planIds', 'pollIds', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'description', 'icon', 'image', 'color', 'inviteCode', 'createdBy', 'memberIds', 'membersMap', 'planIds', 'pollIds', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.description is string && data.description.size() <= 500
+        && data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 50
+        && (!('image' in data) || (data.image is string && data.image.size() <= 50000))
+        && data.color is string && data.color.size() >= 1 && data.color.size() <= 30
+        && isValidId(data.inviteCode) && data.inviteCode.size() >= 3 && data.inviteCode.size() <= 80
+        && isValidId(data.createdBy)
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 50 && data.memberIds[0] is string
+        && data.membersMap is map && data.membersMap.size() >= 1 && data.membersMap.size() <= 50
+        && data.planIds is list && data.planIds.size() <= 200
+        && data.pollIds is list && data.pollIds.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvite(data) {
+      return data.keys().hasAll(['inviteCode', 'groupId', 'groupName', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['inviteCode', 'groupId', 'groupName', 'createdBy', 'createdAt'])
+        && isValidId(data.inviteCode) && data.inviteCode.size() >= 3 && data.inviteCode.size() <= 80
+        && isValidId(data.groupId)
+        && data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 100
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRsvpEntry(entry) {
+      return entry is map
+        && entry.keys().hasAll(['userId', 'userName', 'userAvatar', 'status'])
+        && entry.keys().hasOnly(['userId', 'userName', 'userAvatar', 'status', 'note'])
+        && entry.userId == request.auth.uid
+        && entry.userName is string && entry.userName.size() >= 1 && entry.userName.size() <= 100
+        && entry.userAvatar is string && entry.userAvatar.size() <= 50000
+        && entry.status is string && entry.status.size() >= 1 && entry.status.size() <= 60
+        && (!('note' in entry) || (entry.note is string && entry.note.size() <= 200));
+    }
+
+    function isValidPlan(data) {
+      return data.keys().hasAll(['id', 'groupId', 'groupName', 'groupColor', 'title', 'description', 'date', 'startTime', 'endTime', 'location', 'createdBy', 'createdByName', 'isProposal', 'memberIds', 'rsvpMap', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'groupId', 'groupName', 'groupColor', 'title', 'description', 'date', 'endDate', 'startTime', 'endTime', 'location', 'distanceKm', 'weatherCondition', 'categoryIcon', 'createdBy', 'createdByName', 'isProposal', 'isRecurring', 'recurrencePattern', 'customRsvpOptions', 'memberIds', 'rsvpMap', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.groupId)
+        && data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 100
+        && data.groupColor is string && data.groupColor.size() >= 1 && data.groupColor.size() <= 30
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 150
+        && data.description is string && data.description.size() <= 1000
+        && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && (!('endDate' in data) || (data.endDate is string && data.endDate.size() <= 10))
+        && data.startTime is string && data.startTime.size() >= 1 && data.startTime.size() <= 20
+        && data.endTime is string && data.endTime.size() <= 20
+        && data.location is string && data.location.size() <= 300
+        && (!('distanceKm' in data) || data.distanceKm is number)
+        && (!('weatherCondition' in data) || (data.weatherCondition is string && data.weatherCondition.size() <= 100))
+        && (!('categoryIcon' in data) || (data.categoryIcon is string && data.categoryIcon.size() <= 20))
+        && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100
+        && data.isProposal is bool
+        && (!('isRecurring' in data) || data.isRecurring is bool)
+        && (!('recurrencePattern' in data) || (data.recurrencePattern is string && data.recurrencePattern.size() <= 100))
+        && (!('customRsvpOptions' in data) || (data.customRsvpOptions is list && data.customRsvpOptions.size() <= 10))
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 50 && data.memberIds[0] is string
+        && data.rsvpMap is map && data.rsvpMap.size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPlanComment(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'userAvatar', 'text', 'memberIds', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'userName', 'userAvatar', 'text', 'memberIds', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100
+        && data.userAvatar is string && data.userAvatar.size() <= 50000
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 1000
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 50 && data.memberIds[0] is string
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPoll(data) {
+      return data.keys().hasAll(['id', 'groupId', 'groupName', 'question', 'category', 'options', 'votesMap', 'memberIds', 'createdBy', 'createdByName', 'createdAvatar', 'isClosed', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'groupId', 'groupName', 'question', 'category', 'options', 'votesMap', 'memberIds', 'createdBy', 'createdByName', 'createdAvatar', 'isClosed', 'winningOptionId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.groupId)
+        && data.groupName is string && data.groupName.size() >= 1 && data.groupName.size() <= 100
+        && data.question is string && data.question.size() >= 1 && data.question.size() <= 200
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 40
+        && data.options is list && data.options.size() >= 2 && data.options.size() <= 10 && data.options[0] is map
+        && data.votesMap is map && data.votesMap.size() <= 50
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 50 && data.memberIds[0] is string
+        && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100
+        && data.createdAvatar is string && data.createdAvatar.size() <= 50000
+        && data.isClosed is bool
+        && (!('winningOptionId' in data) || (data.winningOptionId is string && data.winningOptionId.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMessage(data) {
+      return data.keys().hasAll(['id', 'groupId', 'senderId', 'senderName', 'senderAvatar', 'text', 'memberIds', 'createdAt'])
+        && data.keys().hasOnly(['id', 'groupId', 'senderId', 'senderName', 'senderAvatar', 'text', 'memberIds', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.groupId)
+        && isValidId(data.senderId)
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 100
+        && data.senderAvatar is string && data.senderAvatar.size() <= 50000
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 1000
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 50 && data.memberIds[0] is string
+        && data.createdAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'type', 'title', 'message', 'senderId', 'read', 'createdAt'])
+        && data.keys().hasOnly(['id', 'type', 'title', 'message', 'senderId', 'relatedEventId', 'relatedPollId', 'relatedGroupId', 'read', 'actionRequired', 'createdAt'])
+        && isValidId(data.id)
+        && data.type in ['event_invite', 'event_update', 'rsvp_reminder', 'poll_created', 'comment_added']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 150
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 500
+        && isValidId(data.senderId)
+        && (!('relatedEventId' in data) || (data.relatedEventId is string && data.relatedEventId.size() <= 128))
+        && (!('relatedPollId' in data) || (data.relatedPollId is string && data.relatedPollId.size() <= 128))
+        && (!('relatedGroupId' in data) || (data.relatedGroupId is string && data.relatedGroupId.size() <= 128))
+        && data.read is bool
+        && (!('actionRequired' in data) || data.actionRequired is bool)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFeedback(data) {
+      return data.keys().hasAll(['id', 'userId', 'category', 'message', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'category', 'message', 'createdAt'])
+        && isValidId(data.id)
+        && data.userId == request.auth.uid
+        && data.category in ['suggestion', 'issue', 'question']
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 2000
+        && data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+
+    // Connection health check (read-only single doc, no list/write)
+    match /test/{testId} {
+      allow get: if testId == 'connection';
+      allow list, write: if false;
+    }
+
+    // Users: strictly owner-only read/write to isolate PII (email)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().id == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUser(incoming())
+        && incoming().id == existing().id
+        && incoming().email == existing().email
+        && incoming().provider == existing().provider
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'nickname', 'avatar', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      // User Notifications subcollection
+      match /notifications/{notificationId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(notificationId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(notificationId)
+          && isValidNotification(incoming())
+          && incoming().id == notificationId
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && (
+            userId == request.auth.uid ||
+            ('relatedGroupId' in incoming() && isGroupMember(incoming().relatedGroupId) && isUidInGroup(userId, incoming().relatedGroupId))
+          );
+        allow update: if isVerified()
+          && isValidId(userId)
+          && isValidId(notificationId)
+          && request.auth.uid == userId
+          && isValidNotification(incoming())
+          && incoming().id == existing().id
+          && incoming().senderId == existing().senderId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(notificationId) && request.auth.uid == userId;
+      }
+    }
+
+    // Invites: exact get lookup only (no list scraping)
+    match /invites/{inviteCode} {
+      allow get: if isSignedIn() && isValidId(inviteCode);
+      allow list: if false;
+      allow create: if isVerified()
+        && isValidId(inviteCode)
+        && isValidInvite(incoming())
+        && incoming().inviteCode == inviteCode
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/groups/$(incoming().groupId));
+      allow update: if false;
+      allow delete: if isVerified() && isValidId(inviteCode) && existing().createdBy == request.auth.uid;
+    }
+
+    // Groups: private invite-only groups
+    match /groups/{groupId} {
+      allow get: if isSignedIn() && isValidId(groupId) && request.auth.uid in existing().memberIds;
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+      allow create: if isVerified()
+        && isValidId(groupId)
+        && isValidGroup(incoming())
+        && incoming().id == groupId
+        && incoming().createdBy == request.auth.uid
+        && incoming().memberIds.size() == 1
+        && incoming().memberIds[0] == request.auth.uid
+        && incoming().membersMap.keys().hasOnly([request.auth.uid])
+        && isValidMemberProfile(incoming().membersMap[request.auth.uid])
+        && incoming().membersMap[request.auth.uid].id == request.auth.uid
+        && incoming().planIds.size() == 0
+        && incoming().pollIds.size() == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/invites/$(incoming().inviteCode));
+      allow update: if isVerified()
+        && isValidId(groupId)
+        && isValidGroup(incoming())
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().inviteCode == existing().inviteCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Member updates group metadata
+          (request.auth.uid in existing().memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'image', 'icon', 'color', 'updatedAt'])) ||
+          // Action 2: Member updates ONLY their own profile inside membersMap
+          (request.auth.uid in existing().memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['membersMap', 'updatedAt'])
+            && incoming().membersMap.diff(existing().membersMap).affectedKeys().hasOnly([request.auth.uid])
+            && isValidMemberProfile(incoming().membersMap[request.auth.uid])
+            && incoming().membersMap[request.auth.uid].id == request.auth.uid) ||
+          // Action 3: Member registers a plan or poll ID on the group
+          (request.auth.uid in existing().memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['planIds', 'pollIds', 'updatedAt'])) ||
+          // Action 4: New user joins via valid invite (adds ONLY themselves)
+          (!(request.auth.uid in existing().memberIds)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'membersMap', 'updatedAt'])
+            && incoming().memberIds.hasAll(existing().memberIds)
+            && incoming().memberIds.size() == existing().memberIds.size() + 1
+            && request.auth.uid in incoming().memberIds
+            && incoming().membersMap.diff(existing().membersMap).affectedKeys().hasOnly([request.auth.uid])
+            && isValidMemberProfile(incoming().membersMap[request.auth.uid])
+            && incoming().membersMap[request.auth.uid].id == request.auth.uid
+            && exists(/databases/$(database)/documents/invites/$(existing().inviteCode))) ||
+          // Action 5: Member leaves group (removes ONLY themselves)
+          (request.auth.uid in existing().memberIds
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'membersMap', 'updatedAt'])
+            && existing().memberIds.hasAll(incoming().memberIds)
+            && incoming().memberIds.size() == existing().memberIds.size() - 1
+            && !(request.auth.uid in incoming().memberIds)
+            && incoming().membersMap.diff(existing().membersMap).affectedKeys().hasOnly([request.auth.uid])
+            && !(request.auth.uid in incoming().membersMap))
+        );
+      allow delete: if isVerified() && isValidId(groupId) && existing().createdBy == request.auth.uid;
+
+      // Group Chat Messages
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(groupId) && isValidId(messageId) && isGroupMember(groupId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+        allow create: if isVerified()
+          && isValidId(groupId)
+          && isValidId(messageId)
+          && isGroupMember(groupId)
+          && isValidGroupMessage(incoming())
+          && incoming().id == messageId
+          && incoming().groupId == groupId
+          && incoming().senderId == request.auth.uid
+          && request.auth.uid in incoming().memberIds
+          && incoming().createdAt == request.time;
+        allow update: if isVerified()
+          && isValidId(groupId)
+          && isValidId(messageId)
+          && isGroupMember(groupId)
+          && isValidGroupMessage(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds'])
+          && !(request.auth.uid in existing().memberIds)
+          && incoming().memberIds.hasAll(existing().memberIds)
+          && incoming().memberIds.size() == existing().memberIds.size() + 1
+          && request.auth.uid in incoming().memberIds;
+        allow delete: if isVerified() && isValidId(groupId) && isValidId(messageId) && existing().senderId == request.auth.uid;
+      }
+    }
+
+    // Plans (Events & Proposals)
+    match /plans/{planId} {
+      allow get: if isSignedIn() && isValidId(planId) && (request.auth.uid in existing().memberIds || isGroupMember(existing().groupId));
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+      allow create: if isVerified()
+        && isValidId(planId)
+        && isValidPlan(incoming())
+        && incoming().id == planId
+        && incoming().createdBy == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && isGroupMember(incoming().groupId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(planId)
+        && isValidPlan(incoming())
+        && incoming().id == existing().id
+        && incoming().groupId == existing().groupId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Creator updates plan details or confirms proposal
+          (existing().createdBy == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'date', 'endDate', 'startTime', 'endTime', 'location', 'weatherCondition', 'categoryIcon', 'customRsvpOptions', 'isProposal', 'groupName', 'groupColor', 'memberIds', 'updatedAt'])) ||
+          // Action 2: Group member updates ONLY their own RSVP inside rsvpMap
+          (isGroupMember(existing().groupId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['rsvpMap', 'updatedAt'])
+            && incoming().rsvpMap.diff(existing().rsvpMap).affectedKeys().hasOnly([request.auth.uid])
+            && isValidRsvpEntry(incoming().rsvpMap[request.auth.uid])) ||
+          // Action 3: Newly joined group member syncs themselves into memberIds
+          (isGroupMember(existing().groupId)
+            && !(request.auth.uid in existing().memberIds)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && incoming().memberIds.hasAll(existing().memberIds)
+            && incoming().memberIds.size() == existing().memberIds.size() + 1
+            && request.auth.uid in incoming().memberIds)
+        );
+      allow delete: if isVerified() && isValidId(planId) && existing().createdBy == request.auth.uid;
+
+      // Plan Comments
+      match /comments/{commentId} {
+        allow get: if isSignedIn() && isValidId(planId) && isValidId(commentId) && (request.auth.uid in existing().memberIds || isGroupMember(get(/databases/$(database)/documents/plans/$(planId)).data.groupId));
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+        allow create: if isVerified()
+          && isValidId(planId)
+          && isValidId(commentId)
+          && isValidPlanComment(incoming())
+          && incoming().id == commentId
+          && incoming().userId == request.auth.uid
+          && request.auth.uid in incoming().memberIds
+          && exists(/databases/$(database)/documents/plans/$(planId))
+          && isGroupMember(get(/databases/$(database)/documents/plans/$(planId)).data.groupId)
+          && incoming().createdAt == request.time;
+        allow update: if isVerified()
+          && isValidId(planId)
+          && isValidId(commentId)
+          && exists(/databases/$(database)/documents/plans/$(planId))
+          && isGroupMember(get(/databases/$(database)/documents/plans/$(planId)).data.groupId)
+          && isValidPlanComment(incoming())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds'])
+          && !(request.auth.uid in existing().memberIds)
+          && incoming().memberIds.hasAll(existing().memberIds)
+          && incoming().memberIds.size() == existing().memberIds.size() + 1
+          && request.auth.uid in incoming().memberIds;
+        allow delete: if isVerified() && isValidId(planId) && isValidId(commentId) && existing().userId == request.auth.uid;
+      }
+    }
+
+    // Polls
+    match /polls/{pollId} {
+      allow get: if isSignedIn() && isValidId(pollId) && (request.auth.uid in existing().memberIds || isGroupMember(existing().groupId));
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+      allow create: if isVerified()
+        && isValidId(pollId)
+        && isValidPoll(incoming())
+        && incoming().id == pollId
+        && incoming().createdBy == request.auth.uid
+        && request.auth.uid in incoming().memberIds
+        && isGroupMember(incoming().groupId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified()
+        && isValidId(pollId)
+        && isValidPoll(incoming())
+        && incoming().id == existing().id
+        && incoming().groupId == existing().groupId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Creator updates/closes poll (when not already closed)
+          (existing().createdBy == request.auth.uid
+            && existing().isClosed == false
+            && incoming().diff(existing()).affectedKeys().hasOnly(['isClosed', 'winningOptionId', 'memberIds', 'updatedAt'])) ||
+          // Action 2: Group member votes ONLY for themselves in votesMap (when poll is open)
+          (existing().isClosed == false
+            && isGroupMember(existing().groupId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['votesMap', 'updatedAt'])
+            && incoming().votesMap.diff(existing().votesMap).affectedKeys().hasOnly([request.auth.uid])
+            && (!(request.auth.uid in incoming().votesMap)
+              || (incoming().votesMap[request.auth.uid] is string
+                && incoming().votesMap[request.auth.uid].size() >= 1
+                && incoming().votesMap[request.auth.uid].size() <= 64))) ||
+          // Action 3: Newly joined group member syncs themselves into memberIds
+          (isGroupMember(existing().groupId)
+            && !(request.auth.uid in existing().memberIds)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'updatedAt'])
+            && incoming().memberIds.hasAll(existing().memberIds)
+            && incoming().memberIds.size() == existing().memberIds.size() + 1
+            && request.auth.uid in incoming().memberIds)
+        );
+      allow delete: if isVerified() && isValidId(pollId) && existing().createdBy == request.auth.uid;
+    }
+
+    // Feedback (write-only for verified users)
+    match /feedback/{feedbackId} {
+      allow read: if false;
+      allow create: if isVerified()
+        && isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && incoming().id == feedbackId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
