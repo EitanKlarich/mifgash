@@ -47,25 +47,60 @@ import {
 } from './types';
 import { Check, AlertCircle, Plus, Vote, Loader2 } from 'lucide-react';
 
+const PENDING_INVITE_STORAGE_KEY = 'mifgash_pending_invite_code';
+
 function readInitialInviteCodeFromUrl(): string | null {
   try {
     const url = new URL(window.location.href);
     const qJoin = url.searchParams.get('join');
     if (qJoin && qJoin.trim()) {
-      return qJoin.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      const code = qJoin.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      if (code.length >= 3 && code.length <= 80) {
+        try {
+          window.sessionStorage.setItem(PENDING_INVITE_STORAGE_KEY, code);
+        } catch {
+          // ignore storage errors
+        }
+        return code;
+      }
     }
     const segments = url.pathname.split('/').filter(Boolean);
     const joinIdx = segments.indexOf('join');
     if (joinIdx >= 0 && segments[joinIdx + 1]) {
-      return segments[joinIdx + 1].trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      const code = segments[joinIdx + 1].trim().replace(/[^a-zA-Z0-9_-]/g, '');
+      if (code.length >= 3 && code.length <= 80) {
+        try {
+          window.sessionStorage.setItem(PENDING_INVITE_STORAGE_KEY, code);
+        } catch {
+          // ignore storage errors
+        }
+        return code;
+      }
     }
     if (
       segments.length === 1 &&
       !segments[0].includes('.') &&
-      !/^(api|assets|login|signup|home|calendar|groups|profile)$/i.test(segments[0]) &&
+      !/^(api|assets|login|signup|home|calendar|groups|polls|notifications|activity|privacy|terms|profile)$/i.test(
+        segments[0]
+      ) &&
       /^[a-zA-Z0-9_-]{3,80}$/.test(segments[0])
     ) {
-      return segments[0];
+      const code = segments[0];
+      try {
+        window.sessionStorage.setItem(PENDING_INVITE_STORAGE_KEY, code);
+      } catch {
+        // ignore storage errors
+      }
+      return code;
+    }
+
+    try {
+      const saved = window.sessionStorage.getItem(PENDING_INVITE_STORAGE_KEY);
+      if (saved && /^[a-zA-Z0-9_-]{3,80}$/.test(saved)) {
+        return saved;
+      }
+    } catch {
+      // ignore storage errors
     }
   } catch {
     // ignore URL parse failure
@@ -229,11 +264,12 @@ export default function App() {
     setPendingInviteCode(null);
 
     try {
+      window.sessionStorage.removeItem(PENDING_INVITE_STORAGE_KEY);
       if (window.location.pathname !== '/' || window.location.search.includes('join=')) {
         window.history.replaceState({}, '', '/');
       }
     } catch {
-      // ignore history errors
+      // ignore history/storage errors
     }
 
     joinGroupByInviteCode(code, user, groups)
