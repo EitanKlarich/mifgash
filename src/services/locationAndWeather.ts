@@ -1,4 +1,4 @@
-import { apiFetch } from '../config/api';
+import { apiUrl } from '../lib/api';
 
 export interface LocationSuggestion {
   displayName: string;
@@ -120,7 +120,7 @@ export async function fetchLocationSuggestions(query: string): Promise<LocationS
       query.trim()
     )}&limit=6&lang=en&lat=${lat}&lon=${lon}`;
 
-    const res = await apiFetch(photonUrl);
+    const res = await fetch(apiUrl(photonUrl));
     if (res.ok) {
       const data = await res.json();
       if (data.features && data.features.length > 0) {
@@ -177,7 +177,7 @@ export async function fetchLocationSuggestions(query: string): Promise<LocationS
         query.trim()
       )}&addressdetails=1&limit=5&countrycodes=us,ca,gb&lat=${lat}&lon=${lon}`;
 
-      const res = await apiFetch(nomUrl, {
+      const res = await fetch(apiUrl(nomUrl), {
         headers: { 'Accept-Language': 'en' },
       });
 
@@ -294,7 +294,7 @@ export async function fetchWeatherForLocation(
         const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
           locationStr
         )}&count=1&language=en&format=json`;
-        const geoRes = await apiFetch(geoUrl);
+        const geoRes = await fetch(apiUrl(geoUrl));
         if (geoRes.ok) {
           const geoData = await geoRes.json();
           if (geoData && geoData.results && geoData.results.length > 0) {
@@ -311,7 +311,7 @@ export async function fetchWeatherForLocation(
           const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
             locationStr
           )}&limit=1`;
-          const nomRes = await apiFetch(nomUrl);
+          const nomRes = await fetch(apiUrl(nomUrl));
           if (nomRes.ok) {
             const nomData = await nomRes.json();
             if (nomData && nomData.length > 0) {
@@ -331,7 +331,7 @@ export async function fetchWeatherForLocation(
 
     // Call Open-Meteo Weather API
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&timezone=auto`;
-    const wRes = await apiFetch(weatherUrl);
+    const wRes = await fetch(apiUrl(weatherUrl));
     if (!wRes.ok) {
       return null;
     }

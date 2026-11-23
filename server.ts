@@ -20,6 +20,8 @@ const STATIC_ALLOWED_ORIGINS = new Set<string>([
   "ionic://localhost",
   "http://localhost",
   "https://localhost",
+  "http://localhost:5173",
+  "http://localhost:3000",
   ...configuredFrontendOrigins,
 ]);
 
