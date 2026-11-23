@@ -25,6 +25,7 @@ import {
   signOutReal,
 } from '../services/firebase';
 import { User as UserType } from '../types';
+import { LegalModal, LegalDocType } from './LegalModal';
 import authHeroEvening from '../assets/images/auth_hero_evening_1795309405369.jpg';
 
 interface AuthScreenProps {
@@ -55,6 +56,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [loadingEmail, setLoadingEmail] = useState(false);
   const [loadingReset, setLoadingReset] = useState(false);
   const [loadingVerifyCheck, setLoadingVerifyCheck] = useState(false);
+  const [activeLegalDoc, setActiveLegalDoc] = useState<LegalDocType | null>(null);
 
   // Form Fields
   const [name, setName] = useState('');
@@ -276,7 +278,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       </div>
 
       {/* Auth Interaction Panel (Right Half / Full Width on Mobile) */}
-      <div className="flex-1 flex flex-col items-center justify-center p-5 sm:p-8 lg:p-12 relative">
+      <div className="flex-1 flex flex-col items-center justify-center px-5 sm:px-8 lg:p-12 pt-[max(1.25rem,env(safe-area-inset-top,0px))] pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] relative">
         <div className="w-full max-w-md space-y-6">
           {/* Mobile Brand Header (hidden on desktop where left panel shows it, or compact) */}
           <div className="text-center lg:text-left space-y-2">
@@ -366,7 +368,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     type="button"
                     disabled={anyLoading}
                     onClick={handleTriggerAppleSignIn}
-                    className="w-full h-12 bg-[#182033] hover:bg-[#1E273D] border border-[#1F283C] hover:border-[#8E84E4]/50 text-[#F1F3F7] font-medium text-sm rounded-xl flex items-center justify-center space-x-3 transition-all cursor-pointer disabled:opacity-60"
+                    className="w-full h-12 bg-black hover:bg-[#0D111B] border border-[#2C3752] hover:border-[#8E84E4]/60 text-white font-medium text-sm rounded-xl flex items-center justify-center space-x-3 transition-all cursor-pointer disabled:opacity-60"
                   >
                     {loadingApple ? (
                       <Loader2 className="w-4 h-4 animate-spin text-[#8E84E4]" />
@@ -791,8 +793,39 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
             )}
           </div>
+
+          {/* Legal & Compliance Links */}
+          <div className="text-center space-y-1.5 pt-1">
+            <p className="text-[11px] text-[#5E6980] leading-relaxed">
+              By continuing, you agree to our{' '}
+              <button
+                type="button"
+                onClick={() => setActiveLegalDoc('terms')}
+                className="text-[#8D98AF] hover:text-[#F1F3F7] underline underline-offset-2 transition-colors cursor-pointer"
+              >
+                Terms of Service
+              </button>{' '}
+              and{' '}
+              <button
+                type="button"
+                onClick={() => setActiveLegalDoc('privacy')}
+                className="text-[#8D98AF] hover:text-[#F1F3F7] underline underline-offset-2 transition-colors cursor-pointer"
+              >
+                Privacy Policy
+              </button>
+              .
+            </p>
+          </div>
         </div>
       </div>
+
+      {activeLegalDoc && (
+        <LegalModal
+          docType={activeLegalDoc}
+          onChangeDocType={setActiveLegalDoc}
+          onClose={() => setActiveLegalDoc(null)}
+        />
+      )}
     </div>
   );
 };

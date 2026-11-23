@@ -18,6 +18,7 @@ import {
   syncFirebaseUserToApp,
   signOutReal,
   deleteCurrentUserAccountReal,
+  DeleteAccountResult,
   subscribeUserProfile,
   updateUserProfileInFirestore,
   subscribeUserGroups,
@@ -57,6 +58,14 @@ function readInitialInviteCodeFromUrl(): string | null {
     const joinIdx = segments.indexOf('join');
     if (joinIdx >= 0 && segments[joinIdx + 1]) {
       return segments[joinIdx + 1].trim().replace(/[^a-zA-Z0-9_-]/g, '');
+    }
+    if (
+      segments.length === 1 &&
+      !segments[0].includes('.') &&
+      !/^(api|assets|login|signup|home|calendar|groups|profile)$/i.test(segments[0]) &&
+      /^[a-zA-Z0-9_-]{3,80}$/.test(segments[0])
+    ) {
+      return segments[0];
     }
   } catch {
     // ignore URL parse failure
@@ -220,7 +229,7 @@ export default function App() {
     setPendingInviteCode(null);
 
     try {
-      if (window.location.search.includes('join=') || window.location.pathname.includes('/join/')) {
+      if (window.location.pathname !== '/' || window.location.search.includes('join=')) {
         window.history.replaceState({}, '', '/');
       }
     } catch {
@@ -272,17 +281,20 @@ export default function App() {
     showToast('Signed out');
   };
 
-  const handleDeleteAccount = async () => {
-    if (!user) return;
-    const result = await deleteCurrentUserAccountReal(userGroupIds);
+  const handleDeleteAccount = async (options?: {
+    skipFreshnessPrecheck?: boolean;
+  }): Promise<DeleteAccountResult> => {
+    if (!user) return { success: false, error: 'Not signed in.' };
+    const result = await deleteCurrentUserAccountReal(userGroupIds, options);
     if (result.success) {
       setUser(null);
       setSelectedGroupId(null);
       setActiveTab('home');
-      showToast('Account deleted');
-    } else {
+      showToast('Account permanently deleted');
+    } else if (!result.requiresRecentLogin) {
       showToast(result.error || 'Could not delete account.', true);
     }
+    return result;
   };
 
   const handleUpdateProfile = async (updated: Partial<User>) => {
@@ -402,16 +414,23 @@ export default function App() {
     showToast(`Drafting plan from "${topText}"`);
   };
 
-  const handleCreateGroup = async (groupData: Partial<Group>) => {
-    if (!user) return;
+  const handleCreateGroup = async (
+    groupData: Partial<Group>,
+    options?: { keepModalOpen?: boolean }
+  ): Promise<Group | null> => {
+    if (!user) return null;
     try {
       const created = await createGroupInFirestore(groupData, user);
       setSelectedGroupId(created.id);
       setActiveTab('groups');
-      setShowGroupModal(null);
+      if (!options?.keepModalOpen) {
+        setShowGroupModal(null);
+      }
       showToast(`Created "${created.name}"`);
+      return created;
     } catch {
       showToast('Could not create group.', true);
+      return null;
     }
   };
 
@@ -485,7 +504,7 @@ export default function App() {
         />
 
         {toast && (
-          <div className="fixed bottom-6 right-6 bg-[#182033] text-[#F1F3F7] border border-[#1F283C] px-4 py-2.5 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-medium z-50 animate-in fade-in slide-in-from-bottom-5">
+          <div className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] right-6 bg-[#182033] text-[#F1F3F7] border border-[#1F283C] px-4 py-2.5 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-medium z-50 animate-in fade-in slide-in-from-bottom-5">
             {toast.isError ? (
               <AlertCircle className="w-3.5 h-3.5 text-[#E06C75]" />
             ) : (
@@ -516,7 +535,7 @@ export default function App() {
 
       {/* Main Workspace */}
       <main className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-[#0A0E17] relative overflow-hidden">
-        <div className="p-3 sm:p-4 pb-0 shrink-0">
+        <div className="px-3 sm:px-4 pb-0 safe-header-top shrink-0">
           <Header
             currentUser={user}
             upcomingCount={events.length}
@@ -642,7 +661,7 @@ export default function App() {
 
         {/* Floating Action Button */}
         {activeTab !== 'groups' && activeTab !== 'profile' && (
-          <div className="fixed bottom-20 right-6 md:bottom-8 md:right-8 z-20">
+          <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-6 md:bottom-8 md:right-8 z-20">
             {showFabMenu && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowFabMenu(false)} />
@@ -760,7 +779,7 @@ export default function App() {
 
       {/* Toast Feedback */}
       {toast && (
-        <div className="fixed bottom-20 md:bottom-8 right-6 bg-[#182033] text-[#F1F3F7] border border-[#1F283C] px-4 py-2.5 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-medium z-50 animate-in fade-in slide-in-from-bottom-5">
+        <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] md:bottom-8 right-6 bg-[#182033] text-[#F1F3F7] border border-[#1F283C] px-4 py-2.5 rounded-xl shadow-xl flex items-center space-x-2 text-xs font-medium z-50 animate-in fade-in slide-in-from-bottom-5">
           {toast.isError ? (
             <AlertCircle className="w-3.5 h-3.5 text-[#E06C75]" />
           ) : (

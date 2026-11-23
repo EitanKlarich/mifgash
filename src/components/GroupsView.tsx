@@ -26,6 +26,7 @@ import { formatTimeRange } from '../utils/timeFormat';
 import { getEventThemeArtwork } from '../utils/calendarArtwork';
 import { PRESET_GROUP_PHOTOS } from '../utils/groupPresets';
 import { compressImageFileToDataUrl } from '../utils/avatar';
+import { buildGroupInviteUrl } from '../services/firebase';
 
 interface GroupsViewProps {
   groups: Group[];
@@ -203,8 +204,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
   // Copy invite link handler
   const handleCopyInviteLink = (group: Group) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://mifgash.app';
-    const inviteUrl = `${origin}/?join=${group.inviteCode}`;
+    const inviteUrl = buildGroupInviteUrl(group.inviteCode);
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(inviteUrl).then(
@@ -242,8 +242,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
   // Native share sheet handler
   const handleNativeShare = async (group: Group) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://mifgash.app';
-    const url = `${origin}/?join=${group.inviteCode}`;
+    const url = buildGroupInviteUrl(group.inviteCode);
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
@@ -852,8 +851,8 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       {showInviteModal && (
         <div
           className={`${
-            isPhoneFrame ? 'absolute' : 'fixed'
-          } inset-0 bg-[#0A0E17]/80 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden`}
+            isPhoneFrame ? 'absolute p-3 sm:p-4' : 'fixed safe-modal-container sm:p-4'
+          } inset-0 bg-[#0A0E17]/80 backdrop-blur-xs z-50 flex items-center justify-center overflow-hidden`}
         >
           <div className="bg-[#121724] text-[#F1F3F7] rounded-2xl max-w-sm w-full border border-[#1F283C] shadow-2xl p-4 space-y-4">
             <div className="flex items-center justify-between border-b border-[#1F283C] pb-3">
@@ -872,6 +871,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
               >
                 <X className="w-4 h-4" />
               </button>
+            </div>
+
+            <div className="px-3 py-2 bg-[#0A0E17] border border-[#1F283C] rounded-xl flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#CBD2E1] truncate">
+                {buildGroupInviteUrl(currentGroup.inviteCode).replace(/^https?:\/\//, '')}
+              </span>
+              <span className="text-[10px] text-[#5E6980] shrink-0">Invite link</span>
             </div>
 
             <div className="space-y-2 pt-1">
@@ -969,7 +975,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           SET GROUP PICTURE MODAL
       ───────────────────────────────────────────────────────────── */}
       {showPhotoModal && currentGroup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center safe-modal-container sm:p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-[#121724] border border-[#1F283C] w-full max-w-md rounded-2xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-2 border-b border-[#1F283C]">
@@ -1139,11 +1145,11 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       ───────────────────────────────────────────────────────────── */}
       {showMembersModal && currentGroup && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center safe-top p-0 sm:p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
           onClick={() => setShowMembersModal(false)}
         >
           <div
-            className="bg-[#121724] border-t sm:border border-[#1F283C] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-2xl space-y-3.5 max-h-[85vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom duration-200"
+            className="bg-[#121724] border-t sm:border border-[#1F283C] w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 safe-sheet-bottom sm:pb-5 shadow-2xl space-y-3.5 max-h-[85vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Mobile swipe handle bar */}

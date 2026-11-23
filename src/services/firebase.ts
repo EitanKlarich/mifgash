@@ -15,6 +15,7 @@ import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   deleteUser,
 } from 'firebase/auth';
 import {
@@ -22,6 +23,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocs,
   getDocFromServer,
   updateDoc,
   deleteDoc,
@@ -153,25 +155,68 @@ export function makeSafeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${rand}`;
 }
 
-export function generateInviteCode(name: string): string {
-  const slug =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 28) || 'group';
-  const suffix = Math.random().toString(36).slice(2, 7);
-  return `${slug}-${suffix}`;
+const INVITE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+export function generateInviteCode(_name?: string): string {
+  const length = 6;
+  const bytes = new Uint8Array(length);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += INVITE_ALPHABET[bytes[i] % INVITE_ALPHABET.length];
+  }
+  return code;
+}
+
+export function buildGroupInviteUrl(inviteCode: string): string {
+  const cleanCode = (inviteCode || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const envPublicUrl = (import.meta.env.VITE_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  const envApiUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+
+  let baseUrl = '';
+  if (envPublicUrl && /^https?:\/\//i.test(envPublicUrl)) {
+    baseUrl = envPublicUrl;
+  } else if (
+    typeof window !== 'undefined' &&
+    window.location?.origin &&
+    /^https?:\/\//i.test(window.location.origin)
+  ) {
+    baseUrl = window.location.origin.replace(/\/+$/, '');
+  } else if (envApiUrl && /^https?:\/\//i.test(envApiUrl)) {
+    baseUrl = envApiUrl;
+  } else {
+    baseUrl = 'https://mifgash.app';
+  }
+
+  return `${baseUrl}/${cleanCode}`;
 }
 
 export function extractInviteCode(rawInput: string): string {
   const trimmed = rawInput.trim();
   if (!trimmed) return '';
   try {
-    if (trimmed.includes('://') || trimmed.includes('join')) {
-      const url = trimmed.startsWith('http') ? new URL(trimmed) : new URL(`https://mifgash.app/${trimmed.replace(/^\/+/, '')}`);
+    if (
+      trimmed.includes('://') ||
+      trimmed.includes('/') ||
+      trimmed.includes('?') ||
+      trimmed.toLowerCase().includes('mifgash.app')
+    ) {
+      const normalizedInput = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)
+        ? trimmed
+        : `https://${trimmed.replace(/^\/+/, '')}`;
+      const url = trimmed.startsWith('/')
+        ? new URL(`https://mifgash.app${trimmed}`)
+        : new URL(normalizedInput);
+
       const qJoin = url.searchParams.get('join');
       if (qJoin) return qJoin.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+
       const segments = url.pathname.split('/').filter(Boolean);
       const joinIdx = segments.indexOf('join');
       if (joinIdx >= 0 && segments[joinIdx + 1]) {
@@ -180,6 +225,7 @@ export function extractInviteCode(rawInput: string): string {
       if (segments.length > 0) {
         return segments[segments.length - 1].trim().replace(/[^a-zA-Z0-9_-]/g, '');
       }
+      return '';
     }
   } catch {
     // Fallback to raw strip
@@ -525,13 +571,176 @@ export async function signOutReal(): Promise<void> {
   }
 }
 
-export async function deleteCurrentUserAccountReal(userGroupIds: string[]): Promise<{ success: boolean; error?: string }> {
+export interface DeleteAccountResult {
+  success: boolean;
+  requiresRecentLogin?: boolean;
+  providerType?: 'password' | 'google' | 'apple' | 'other';
+  error?: string;
+}
+
+export async function reauthenticateCurrentUserReal(
+  password?: string
+): Promise<{ success: boolean; error?: string }> {
   const fbUser = auth.currentUser;
-  if (!fbUser) return { success: false, error: 'Not signed in.' };
-  const uid = fbUser.uid;
+  if (!fbUser) {
+    return { success: false, error: 'No active session found. Please sign in again.' };
+  }
+
+  const providerType = getAuthProviderType(fbUser);
 
   try {
-    // Leave all groups user belongs to (where they are not the sole member)
+    if (providerType === 'password') {
+      if (!fbUser.email) {
+        return { success: false, error: 'Account email is unavailable for verification.' };
+      }
+      if (!password) {
+        return { success: false, error: 'Please enter your current password to continue.' };
+      }
+      const credential = EmailAuthProvider.credential(fbUser.email, password);
+      await reauthenticateWithCredential(fbUser, credential);
+      return { success: true };
+    }
+
+    if (providerType === 'google') {
+      await reauthenticateWithPopup(fbUser, googleProvider);
+      return { success: true };
+    }
+
+    if (providerType === 'apple') {
+      await reauthenticateWithPopup(fbUser, appleProvider);
+      return { success: true };
+    }
+
+    // Fallback check against providerData
+    const providerIds = fbUser.providerData.map((p) => p.providerId);
+    if (providerIds.includes('google.com')) {
+      await reauthenticateWithPopup(fbUser, googleProvider);
+      return { success: true };
+    }
+    if (providerIds.includes('apple.com')) {
+      await reauthenticateWithPopup(fbUser, appleProvider);
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: 'Please log out and sign back in to verify your account before deleting.',
+    };
+  } catch (err: any) {
+    let msg = err?.message || 'Re-authentication failed. Please try again.';
+    if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential') {
+      msg = 'Incorrect password. Please check your password and try again.';
+    } else if (err?.code === 'auth/too-many-requests') {
+      msg = 'Too many attempts. Please wait a moment and try again.';
+    } else if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+      msg = 'Verification window was closed before completing.';
+    } else if (err?.code === 'auth/popup-blocked') {
+      msg = 'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
+    } else if (err?.code === 'auth/user-mismatch') {
+      msg = 'Please sign in with the same account that is currently logged in.';
+    }
+    return { success: false, error: msg };
+  }
+}
+
+export async function deleteCurrentUserAccountReal(
+  userGroupIds: string[],
+  options?: { skipFreshnessPrecheck?: boolean }
+): Promise<DeleteAccountResult> {
+  const fbUser = auth.currentUser;
+  if (!fbUser) return { success: false, error: 'Not signed in.' };
+
+  const uid = fbUser.uid;
+  const providerType = getAuthProviderType(fbUser);
+
+  // If the current sign-in session is older than ~4.5 minutes, prompt re-authentication
+  // before deleting Firestore documents so cancelling never leaves a partial state.
+  if (!options?.skipFreshnessPrecheck && fbUser.metadata?.lastSignInTime) {
+    const lastSignInMs = Date.parse(fbUser.metadata.lastSignInTime);
+    if (!Number.isNaN(lastSignInMs) && Date.now() - lastSignInMs > 4.5 * 60 * 1000) {
+      return {
+        success: false,
+        requiresRecentLogin: true,
+        providerType,
+        error: 'For your security, please verify your identity before permanently deleting your account.',
+      };
+    }
+  }
+
+  try {
+    // 1. Delete user's notifications subcollection
+    try {
+      const notifSnap = await getDocs(collection(db, 'users', uid, 'notifications'));
+      for (const nDoc of notifSnap.docs) {
+        await deleteDoc(nDoc.ref).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Could not clean up notifications during account deletion:', err);
+    }
+
+    // 2. Delete plans created by this user (and their comments by this user)
+    const deletedPlanIdsByGroup = new Map<string, string[]>();
+    try {
+      const plansSnap = await getDocs(
+        query(collection(db, 'plans'), where('memberIds', 'array-contains', uid))
+      );
+      for (const pDoc of plansSnap.docs) {
+        const pData = pDoc.data();
+        if (pData.createdBy === uid) {
+          try {
+            const commentsSnap = await getDocs(
+              query(
+                collection(db, 'plans', pDoc.id, 'comments'),
+                where('memberIds', 'array-contains', uid)
+              )
+            );
+            for (const cDoc of commentsSnap.docs) {
+              if (cDoc.data().userId === uid) {
+                await deleteDoc(cDoc.ref).catch(() => {});
+              }
+            }
+          } catch {
+            // ignore comment cleanup errors
+          }
+
+          await deleteDoc(pDoc.ref).catch((err) =>
+            console.warn(`Could not delete plan ${pDoc.id}:`, err)
+          );
+          if (typeof pData.groupId === 'string' && pData.groupId) {
+            const list = deletedPlanIdsByGroup.get(pData.groupId) || [];
+            list.push(pDoc.id);
+            deletedPlanIdsByGroup.set(pData.groupId, list);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not clean up user plans during account deletion:', err);
+    }
+
+    // 3. Delete polls created by this user
+    const deletedPollIdsByGroup = new Map<string, string[]>();
+    try {
+      const pollsSnap = await getDocs(
+        query(collection(db, 'polls'), where('memberIds', 'array-contains', uid))
+      );
+      for (const pollDoc of pollsSnap.docs) {
+        const pollData = pollDoc.data();
+        if (pollData.createdBy === uid) {
+          await deleteDoc(pollDoc.ref).catch((err) =>
+            console.warn(`Could not delete poll ${pollDoc.id}:`, err)
+          );
+          if (typeof pollData.groupId === 'string' && pollData.groupId) {
+            const list = deletedPollIdsByGroup.get(pollData.groupId) || [];
+            list.push(pollDoc.id);
+            deletedPollIdsByGroup.set(pollData.groupId, list);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not clean up user polls during account deletion:', err);
+    }
+
+    // 4. Clean up or leave groups the user belongs to
     for (const groupId of userGroupIds) {
       try {
         const gRef = doc(db, 'groups', groupId);
@@ -539,9 +748,39 @@ export async function deleteCurrentUserAccountReal(userGroupIds: string[]): Prom
         if (gSnap.exists()) {
           const data = gSnap.data();
           const memberIds: string[] = Array.isArray(data.memberIds) ? data.memberIds : [];
-          if (memberIds.length === 1 && data.createdBy === uid) {
+
+          if (memberIds.length <= 1 && data.createdBy === uid) {
+            // Delete messages authored by this user before deleting the sole-owned group
+            try {
+              const msgsSnap = await getDocs(
+                query(
+                  collection(db, 'groups', groupId, 'messages'),
+                  where('memberIds', 'array-contains', uid)
+                )
+              );
+              for (const mDoc of msgsSnap.docs) {
+                if (mDoc.data().senderId === uid) {
+                  await deleteDoc(mDoc.ref).catch(() => {});
+                }
+              }
+            } catch {
+              // ignore message cleanup errors
+            }
+
+            if (typeof data.inviteCode === 'string' && data.inviteCode) {
+              await deleteDoc(doc(db, 'invites', data.inviteCode)).catch(() => {});
+            }
             await deleteDoc(gRef);
           } else if (memberIds.includes(uid) && memberIds.length > 1) {
+            const removedPlans = deletedPlanIdsByGroup.get(groupId) || [];
+            const removedPolls = deletedPollIdsByGroup.get(groupId) || [];
+            if (removedPlans.length > 0 || removedPolls.length > 0) {
+              const groupPatch: Record<string, any> = { updatedAt: serverTimestamp() };
+              if (removedPlans.length > 0) groupPatch.planIds = arrayRemove(...removedPlans);
+              if (removedPolls.length > 0) groupPatch.pollIds = arrayRemove(...removedPolls);
+              await updateDoc(gRef, groupPatch).catch(() => {});
+            }
+
             await updateDoc(gRef, {
               memberIds: arrayRemove(uid),
               [`membersMap.${uid}`]: deleteField(),
@@ -554,14 +793,22 @@ export async function deleteCurrentUserAccountReal(userGroupIds: string[]): Prom
       }
     }
 
+    // 5. Delete the user's profile document
     await deleteDoc(doc(db, 'users', uid));
-    await deleteUser(fbUser);
+
+    // 6. Delete the Firebase Authentication user account
+    if (!auth.currentUser) {
+      return { success: false, error: 'Session expired. Please log in again.' };
+    }
+    await deleteUser(auth.currentUser);
     return { success: true };
   } catch (err: any) {
     if (err?.code === 'auth/requires-recent-login') {
       return {
         success: false,
-        error: 'For security, please log out and log back in before deleting your account.',
+        requiresRecentLogin: true,
+        providerType,
+        error: 'For your security, please verify your identity before deleting your account.',
       };
     }
     return { success: false, error: err?.message || 'Could not delete account.' };
@@ -815,7 +1062,10 @@ export async function joinGroupByInviteCode(
   }
 
   try {
-    const inviteSnap = await getDoc(doc(db, 'invites', code));
+    let inviteSnap = await getDoc(doc(db, 'invites', code));
+    if (!inviteSnap.exists() && code !== code.toLowerCase()) {
+      inviteSnap = await getDoc(doc(db, 'invites', code.toLowerCase()));
+    }
     if (!inviteSnap.exists()) {
       return { status: 'not_found' };
     }

@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
-import { X, Users, Link2, Upload, Check, Copy, Share2, QrCode, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { X, Users, Link2, Upload, Check, Copy, Share2, QrCode } from 'lucide-react';
 import { Group, User } from '../types';
 
-import { PRESET_GROUP_PHOTOS } from '../utils/groupPresets';
 import { compressImageFileToDataUrl } from '../utils/avatar';
-import { generateInviteCode } from '../services/firebase';
+import { generateInviteCode, buildGroupInviteUrl } from '../services/firebase';
 
 interface GroupModalsProps {
   mode: 'create' | 'join';
   currentUser: User;
   onClose: () => void;
-  onCreateGroup: (groupData: Partial<Group>) => void;
+  onCreateGroup: (
+    groupData: Partial<Group>,
+    options?: { keepModalOpen?: boolean }
+  ) => Promise<Group | null> | void;
   onJoinGroup: (inviteCode: string) => void;
   isPhoneFrame?: boolean;
 }
@@ -29,6 +31,7 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
   const [description, setDescription] = useState('');
   const [groupImage, setGroupImage] = useState<string>('');
   const [createdGroupData, setCreatedGroupData] = useState<Partial<Group> | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Invite & Join states
   const [inviteInput, setInviteInput] = useState('');
@@ -48,10 +51,11 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
     }
   };
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || isCreating) return;
 
+    setIsCreating(true);
     const inviteCode = generateInviteCode(name.trim());
     const newGroupData: Partial<Group> = {
       name: name.trim(),
@@ -71,20 +75,26 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
       ],
     };
 
-    setCreatedGroupData(newGroupData);
-    setStep('invite');
+    try {
+      const created = await onCreateGroup(newGroupData, { keepModalOpen: true });
+      if (created === null) {
+        setIsCreating(false);
+        return;
+      }
+      setCreatedGroupData(created || newGroupData);
+      setStep('invite');
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleFinishCreation = () => {
-    if (createdGroupData) {
-      onCreateGroup(createdGroupData);
-    }
+    onClose();
   };
 
   const getInviteUrl = () => {
     const code = createdGroupData?.inviteCode || 'invite';
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://mifgash.app';
-    return `${origin}/?join=${code}`;
+    return buildGroupInviteUrl(code);
   };
 
   const handleCopyLink = () => {
@@ -163,8 +173,8 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
   return (
     <div
       className={`${
-        isPhoneFrame ? 'absolute' : 'fixed'
-      } inset-0 bg-[#0A0E17]/85 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden`}
+        isPhoneFrame ? 'absolute p-3 sm:p-4' : 'fixed safe-modal-container sm:p-4'
+      } inset-0 bg-[#0A0E17]/85 backdrop-blur-xs z-50 flex items-center justify-center overflow-hidden`}
     >
       <div
         className={`bg-[#121724] text-[#F1F3F7] rounded-2xl max-w-md w-full border border-[#1F283C] shadow-2xl flex flex-col overflow-hidden min-h-0 ${
@@ -251,32 +261,8 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
                     )}
                   </div>
                   <p className="text-[10px] text-[#5E6980]">
-                    Upload a custom photo or pick a preset below
+                    Optional · Upload a photo from your device
                   </p>
-                </div>
-              </div>
-
-              {/* Preset photo thumbnails */}
-              <div className="mt-3 pt-3 border-t border-[#1F283C]/60">
-                <span className="text-[10px] font-medium text-[#5E6980] block mb-1.5">
-                  Or pick a photo:
-                </span>
-                <div className="grid grid-cols-4 gap-2">
-                  {PRESET_GROUP_PHOTOS.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setGroupImage(preset.url)}
-                      className={`relative aspect-square rounded-xl overflow-hidden border transition-all cursor-pointer ${
-                        groupImage === preset.url
-                          ? 'border-[#8E84E4] ring-2 ring-[#8E84E4]/40'
-                          : 'border-[#1F283C] hover:border-[#8E84E4]/40 opacity-70 hover:opacity-100'
-                      }`}
-                      title={preset.label}
-                    >
-                      <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
                 </div>
               </div>
             </div>
@@ -321,10 +307,10 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={!name.trim()}
+                disabled={!name.trim() || isCreating}
                 className="px-4 py-2 bg-[#8E84E4] hover:bg-[#7B71D3] disabled:opacity-50 text-[#F1F3F7] font-semibold text-xs rounded-xl transition-all cursor-pointer shadow-xs"
               >
-                Create Group
+                {isCreating ? 'Creating...' : 'Create Group'}
               </button>
             </div>
           </form>
@@ -346,6 +332,13 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
               <p className="text-xs text-[#8D98AF]">
                 Mifgash groups are invite-only. Share your group invite link or QR code with your friends.
               </p>
+            </div>
+
+            <div className="px-3 py-2 bg-[#0A0E17] border border-[#1F283C] rounded-xl flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-[#CBD2E1] truncate">
+                {getInviteUrl().replace(/^https?:\/\//, '')}
+              </span>
+              <span className="text-[10px] text-[#5E6980] shrink-0">Invite link</span>
             </div>
 
             {/* Invite Action Buttons */}
@@ -458,7 +451,7 @@ export const GroupModals: React.FC<GroupModalsProps> = ({
                 required
                 value={inviteInput}
                 onChange={(e) => setInviteInput(e.target.value)}
-                placeholder="e.g. weekend-crew-4821"
+                placeholder="e.g. mifgash.app/7k9m2p or 7k9m2p"
                 className="w-full bg-[#182033] border border-[#1F283C] px-3.5 py-2.5 rounded-xl text-xs font-medium text-[#F1F3F7] placeholder-[#5E6980] focus:outline-none focus:border-[#8E84E4]"
               />
               <p className="text-[10px] text-[#5E6980] mt-1">

@@ -15,7 +15,6 @@ import {
   Upload,
   Link as LinkIcon,
   Check,
-  X,
   Download,
   AlertCircle,
   ShieldCheck,
@@ -39,13 +38,17 @@ import {
   getAuthProviderType,
   updateUserPasswordReal,
   submitFeedbackInFirestore,
+  reauthenticateCurrentUserReal,
+  DeleteAccountResult,
 } from '../services/firebase';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import { LegalModal, LegalDocType } from './LegalModal';
 
 interface ProfileViewProps {
   currentUser: UserType;
   onUpdateProfile: (updated: Partial<UserType>) => void;
   onSignOut?: () => void;
-  onDeleteAccount?: () => void;
+  onDeleteAccount?: (options?: { skipFreshnessPrecheck?: boolean }) => Promise<DeleteAccountResult>;
   events?: EventPlan[];
   isPhoneFrame?: boolean;
 }
@@ -83,7 +86,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [activePolicyModal, setActivePolicyModal] = useState<'privacy' | 'terms' | null>(null);
+  const [deleteStep, setDeleteStep] = useState<'confirm' | 'reauth'>('confirm');
+  const [deleteProviderType, setDeleteProviderType] = useState<'password' | 'google' | 'apple' | 'other'>('password');
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [activePolicyModal, setActivePolicyModal] = useState<LegalDocType | null>(null);
 
   // Security Sub-screen State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -131,6 +139,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const authProviderType = getAuthProviderType(auth.currentUser);
+  const { isInstallable, isInstalled, isIOS, isNative, install } = usePWAInstall();
+  const [showIOSInstallGuide, setShowIOSInstallGuide] = useState(false);
 
   // Keep local profile form state in sync with currentUser
   useEffect(() => {
@@ -303,6 +313,71 @@ END:VCALENDAR`;
     if (parts.length === 0 || !parts[0]) return 'U';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  // Open Delete Account Modal cleanly
+  const openDeleteAccountModal = () => {
+    setDeleteConfirmText('');
+    setDeleteStep('confirm');
+    setDeleteProviderType(getAuthProviderType(auth.currentUser));
+    setReauthPassword('');
+    setDeleteError(null);
+    setIsDeletingAccount(false);
+    setShowDeleteModal(true);
+  };
+
+  // Trigger account deletion & handle auth/requires-recent-login cleanly
+  const handleConfirmDeleteAccount = async () => {
+    if (!onDeleteAccount || deleteConfirmText !== 'DELETE' || isDeletingAccount) return;
+    setDeleteError(null);
+    setIsDeletingAccount(true);
+
+    const res = await onDeleteAccount();
+    setIsDeletingAccount(false);
+
+    if (res.success) {
+      setShowDeleteModal(false);
+      return;
+    }
+
+    if (res.requiresRecentLogin) {
+      setDeleteProviderType(res.providerType || getAuthProviderType(auth.currentUser));
+      setReauthPassword('');
+      setDeleteError(null);
+      setDeleteStep('reauth');
+      return;
+    }
+
+    setDeleteError(res.error || 'Could not delete account. Please try again.');
+  };
+
+  // Re-authenticate user and immediately retry account deletion
+  const handleReauthenticateAndDelete = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!onDeleteAccount || isDeletingAccount) return;
+
+    setDeleteError(null);
+    setIsDeletingAccount(true);
+
+    const reauthRes = await reauthenticateCurrentUserReal(
+      deleteProviderType === 'password' ? reauthPassword : undefined
+    );
+
+    if (!reauthRes.success) {
+      setIsDeletingAccount(false);
+      setDeleteError(reauthRes.error || 'Verification failed. Please try again.');
+      return;
+    }
+
+    const retryRes = await onDeleteAccount({ skipFreshnessPrecheck: true });
+    setIsDeletingAccount(false);
+
+    if (retryRes.success) {
+      setShowDeleteModal(false);
+      return;
+    }
+
+    setDeleteError(retryRes.error || 'Could not complete account deletion.');
   };
 
   // Render Sub-screen Back Header
@@ -539,36 +614,101 @@ END:VCALENDAR`;
                   </div>
                   <ChevronRight className="w-4 h-4 text-[#5E6980] group-hover:text-[#8D98AF] transition-colors shrink-0 ml-2" />
                 </button>
+                {/* Privacy Policy Row (directly accessible in settings) */}
+                <button
+                  type="button"
+                  onClick={() => setActivePolicyModal('privacy')}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between text-left hover:bg-[#182033] transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3.5 min-w-0">
+                    <ShieldCheck className="w-4 h-4 text-[#8D98AF] group-hover:text-[#8E84E4] transition-colors shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-medium text-[#F1F3F7] truncate">
+                        Privacy Policy
+                      </div>
+                      <div className="text-[11px] text-[#8D98AF] truncate mt-0.5">
+                        How your data is stored and protected
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[#5E6980] group-hover:text-[#8D98AF] transition-colors shrink-0 ml-2" />
+                </button>
+
+                {/* Terms of Service Row (directly accessible in settings) */}
+                <button
+                  type="button"
+                  onClick={() => setActivePolicyModal('terms')}
+                  className="w-full p-3.5 sm:p-4 flex items-center justify-between text-left hover:bg-[#182033] transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3.5 min-w-0">
+                    <FileText className="w-4 h-4 text-[#8D98AF] group-hover:text-[#8E84E4] transition-colors shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-medium text-[#F1F3F7] truncate">
+                        Terms of Service
+                      </div>
+                      <div className="text-[11px] text-[#8D98AF] truncate mt-0.5">
+                        Usage rules and service terms
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[#5E6980] group-hover:text-[#8D98AF] transition-colors shrink-0 ml-2" />
+                </button>
+
+                {/* Install App Row (Web / iOS Safari only; auto-hidden in Capacitor native or standalone) */}
+                {!isNative && !isInstalled && (isInstallable || isIOS) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isInstallable) {
+                        void install();
+                      } else if (isIOS) {
+                        setShowIOSInstallGuide(true);
+                      }
+                    }}
+                    className="w-full p-3.5 sm:p-4 flex items-center justify-between text-left hover:bg-[#182033] transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-3.5 min-w-0">
+                      <Download className="w-4 h-4 text-[#8E84E4] shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-medium text-[#F1F3F7] truncate">
+                          Install Mifgash App
+                        </div>
+                        <div className="text-[11px] text-[#8D98AF] truncate mt-0.5">
+                          {isIOS ? 'Add to your Home Screen on iPhone or iPad' : 'Install for quick home screen access'}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-[#5E6980] group-hover:text-[#8D98AF] transition-colors shrink-0 ml-2" />
+                  </button>
+                )}
               </div>
             </div>
 
             {/* SECTION: ACCOUNT ACTIONS */}
-            <div className="pt-2 space-y-3">
+            <div className="pt-2 space-y-2.5">
               {/* Log Out Button with Confirmation */}
               {onSignOut && (
                 <button
                   type="button"
                   onClick={() => setShowLogoutModal(true)}
-                  className="w-full p-3.5 bg-[#121724] hover:bg-[#E06C75]/10 border border-[#1F283C] hover:border-[#E06C75]/30 rounded-2xl flex items-center justify-center space-x-2 text-xs font-medium text-[#E06C75] transition-colors cursor-pointer"
+                  className="w-full p-3.5 bg-[#121724] hover:bg-[#182033] border border-[#1F283C] rounded-2xl flex items-center justify-center space-x-2 text-xs font-medium text-[#F1F3F7] transition-colors cursor-pointer"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-4 h-4 text-[#8D98AF]" />
                   <span>Log Out</span>
                 </button>
               )}
 
-              {/* Delete Account (Visually separated near bottom) */}
-              <div className="text-center pt-2">
+              {/* Clear Delete Account Button (App Store & Google Play Compliance) */}
+              {onDeleteAccount && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setDeleteConfirmText('');
-                    setShowDeleteModal(true);
-                  }}
-                  className="text-[11px] text-[#5E6980] hover:text-[#E06C75] transition-colors cursor-pointer py-1"
+                  onClick={openDeleteAccountModal}
+                  className="w-full p-3.5 bg-[#121724] hover:bg-[#E06C75]/10 border border-[#E06C75]/25 hover:border-[#E06C75]/45 rounded-2xl flex items-center justify-center space-x-2 text-xs font-medium text-[#E06C75] transition-colors cursor-pointer"
                 >
-                  Delete Account
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Account</span>
                 </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -840,6 +980,25 @@ END:VCALENDAR`;
                 <span className="text-[10px] text-[#3EB88F] font-semibold">Online</span>
               </div>
             </div>
+
+            {/* Account Deletion inside Security Settings */}
+            {onDeleteAccount && (
+              <div className="pt-3 border-t border-[#1F283C]/60 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="text-xs font-semibold text-[#F1F3F7]">Delete Account</h4>
+                  <p className="text-[11px] text-[#8D98AF] mt-0.5">
+                    Permanently erase your Mifgash account and associated Firebase data.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openDeleteAccountModal}
+                  className="px-3.5 py-2 bg-[#E06C75]/10 hover:bg-[#E06C75]/20 text-[#E06C75] border border-[#E06C75]/30 rounded-xl text-xs font-medium transition-colors shrink-0 cursor-pointer"
+                >
+                  Delete Account
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1229,7 +1388,7 @@ END:VCALENDAR`;
           CONFIRMATION MODAL: LOG OUT
       ───────────────────────────────────────────────────────────── */}
       {showLogoutModal && (
-        <div className="fixed inset-0 bg-[#0A0E17]/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-100">
+        <div className="fixed inset-0 bg-[#0A0E17]/80 backdrop-blur-xs flex items-center justify-center safe-modal-container sm:p-4 z-50 animate-in fade-in duration-100">
           <div className="bg-[#121724] border border-[#1F283C] rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-xl">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-[#E06C75]/15 text-[#E06C75] flex items-center justify-center">
@@ -1267,58 +1426,138 @@ END:VCALENDAR`;
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          CONFIRMATION MODAL: DELETE ACCOUNT
+          CONFIRMATION MODAL: DELETE ACCOUNT (WITH RE-AUTH RETRY)
       ───────────────────────────────────────────────────────────── */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-[#0A0E17]/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-100">
+        <div className="fixed inset-0 bg-[#0A0E17]/85 backdrop-blur-xs flex items-center justify-center safe-modal-container sm:p-4 z-50 animate-in fade-in duration-100">
           <div className="bg-[#121724] border border-[#E06C75]/40 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-[#E06C75]/15 text-[#E06C75] flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-[#E06C75]/15 text-[#E06C75] flex items-center justify-center shrink-0">
+                {deleteStep === 'reauth' ? <Lock className="w-5 h-5" /> : <Trash2 className="w-5 h-5" />}
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-[#F1F3F7]">Delete Account</h3>
-                <p className="text-xs text-[#E06C75] mt-0.5 font-medium">This action cannot be undone</p>
+                <h3 className="text-sm font-semibold text-[#F1F3F7]">
+                  {deleteStep === 'reauth' ? 'Verify Your Identity' : 'Delete Account'}
+                </h3>
+                <p className="text-xs text-[#E06C75] mt-0.5 font-medium">
+                  {deleteStep === 'reauth'
+                    ? 'Recent sign-in required to finish deletion'
+                    : 'This action cannot be undone'}
+                </p>
               </div>
             </div>
 
-            <p className="text-xs text-[#8D98AF] leading-relaxed">
-              This will permanently delete your profile, group memberships, and associated personal activity on Mifgash.
-            </p>
+            {deleteError && (
+              <div className="p-2.5 rounded-xl bg-[#E06C75]/15 border border-[#E06C75]/30 text-xs text-[#E88A96] flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#E06C75]" />
+                <span>{deleteError}</span>
+              </div>
+            )}
 
-            <div>
-              <label className="block text-[10px] uppercase font-semibold text-[#8D98AF] mb-1">
-                Type <span className="font-mono text-[#F1F3F7] font-bold">DELETE</span> to confirm
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="DELETE"
-                className="w-full bg-[#182033] border border-[#1F283C] px-3 py-2 rounded-xl text-xs text-[#F1F3F7] focus:outline-none focus:border-[#E06C75]"
-              />
-            </div>
+            {deleteStep === 'confirm' ? (
+              <>
+                <p className="text-xs text-[#8D98AF] leading-relaxed">
+                  This will permanently delete your profile, notifications, group memberships, plans and polls you created, and your authentication account.
+                </p>
 
-            <div className="flex items-center justify-end space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(false)}
-                className="px-4 py-2 bg-[#182033] hover:bg-[#1F283C] text-[#8D98AF] hover:text-[#F1F3F7] rounded-xl text-xs font-medium transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleteConfirmText !== 'DELETE'}
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  onDeleteAccount?.();
-                }}
-                className="px-4 py-2 bg-[#E06C75] hover:bg-[#D45D6D] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-xs"
-              >
-                Permanently Delete
-              </button>
-            </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-semibold text-[#8D98AF] mb-1">
+                    Type <span className="font-mono text-[#F1F3F7] font-bold">DELETE</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    disabled={isDeletingAccount}
+                    className="w-full bg-[#182033] border border-[#1F283C] px-3 py-2 rounded-xl text-xs text-[#F1F3F7] focus:outline-none focus:border-[#E06C75]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={isDeletingAccount}
+                    onClick={() => setShowDeleteModal(false)}
+                    className="px-4 py-2 bg-[#182033] hover:bg-[#1F283C] text-[#8D98AF] hover:text-[#F1F3F7] rounded-xl text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleteConfirmText !== 'DELETE' || isDeletingAccount}
+                    onClick={handleConfirmDeleteAccount}
+                    className="px-4 py-2 bg-[#E06C75] hover:bg-[#D45D6D] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-xs flex items-center space-x-1.5"
+                  >
+                    {isDeletingAccount && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{isDeletingAccount ? 'Deleting...' : 'Permanently Delete'}</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <form onSubmit={handleReauthenticateAndDelete} className="space-y-4">
+                <p className="text-xs text-[#8D98AF] leading-relaxed">
+                  For your security, please re-authenticate with{' '}
+                  <span className="text-[#F1F3F7] font-medium">
+                    {deleteProviderType === 'google'
+                      ? 'Google'
+                      : deleteProviderType === 'apple'
+                        ? 'Apple'
+                        : 'your password'}
+                  </span>{' '}
+                  to complete permanent account deletion.
+                </p>
+
+                {deleteProviderType === 'password' && (
+                  <div>
+                    <label
+                      htmlFor="reauth-delete-password"
+                      className="block text-[10px] uppercase font-semibold text-[#8D98AF] mb-1"
+                    >
+                      Current Password
+                    </label>
+                    <input
+                      id="reauth-delete-password"
+                      type="password"
+                      required
+                      autoFocus
+                      value={reauthPassword}
+                      onChange={(e) => setReauthPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      disabled={isDeletingAccount}
+                      className="w-full bg-[#182033] border border-[#1F283C] px-3 py-2 rounded-xl text-xs text-[#F1F3F7] focus:outline-none focus:border-[#E06C75]"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end space-x-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isDeletingAccount}
+                    onClick={() => setShowDeleteModal(false)}
+                    className="px-4 py-2 bg-[#182033] hover:bg-[#1F283C] text-[#8D98AF] hover:text-[#F1F3F7] rounded-xl text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isDeletingAccount || (deleteProviderType === 'password' && !reauthPassword)}
+                    className="px-4 py-2 bg-[#E06C75] hover:bg-[#D45D6D] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-xs flex items-center space-x-1.5"
+                  >
+                    {isDeletingAccount && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>
+                      {isDeletingAccount
+                        ? 'Deleting...'
+                        : deleteProviderType === 'google'
+                          ? 'Verify with Google & Delete'
+                          : deleteProviderType === 'apple'
+                            ? 'Verify with Apple & Delete'
+                            : 'Verify & Delete'}
+                    </span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1327,58 +1566,35 @@ END:VCALENDAR`;
           POLICY & TERMS MODAL
       ───────────────────────────────────────────────────────────── */}
       {activePolicyModal && (
-        <div className="fixed inset-0 bg-[#0A0E17]/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-100">
-          <div className="bg-[#121724] border border-[#1F283C] rounded-2xl w-full max-w-md p-5 space-y-4 shadow-xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-[#1F283C]">
-              <h3 className="text-sm font-semibold text-[#F1F3F7]">
-                {activePolicyModal === 'privacy' ? 'Privacy Policy' : 'Terms of Service'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setActivePolicyModal(null)}
-                className="text-[#8D98AF] hover:text-[#F1F3F7] p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <LegalModal
+          docType={activePolicyModal}
+          onChangeDocType={setActivePolicyModal}
+          onClose={() => setActivePolicyModal(null)}
+        />
+      )}
 
-            <div className="flex-1 overflow-y-auto text-xs text-[#8D98AF] space-y-3 leading-relaxed pr-1">
-              {activePolicyModal === 'privacy' ? (
-                <>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Mifgash Privacy First:</strong> We do not sell your personal information or track you across the web. Your account details and group plans are kept private to your groups.
-                  </p>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Data Storage:</strong> Data entered into Mifgash is stored securely in encrypted cloud storage or your local session for instant offline access.
-                  </p>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Calendar Integration:</strong> When exporting events to your calendar, only the event title, date, time, description, and location are included.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Terms of Use:</strong> Mifgash provides group scheduling, polling, and coordination tools for personal, community, and team plans.
-                  </p>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Acceptable Conduct:</strong> Users agree to respect group members and refrain from posting malicious, abusive, or unauthorized content.
-                  </p>
-                  <p>
-                    <strong className="text-[#F1F3F7]">Service Availability:</strong> We continually improve Mifgash to ensure high reliability, speed, and clean coordination.
-                  </p>
-                </>
-              )}
-            </div>
-
-            <div className="pt-2 border-t border-[#1F283C] flex justify-end">
-              <button
-                type="button"
-                onClick={() => setActivePolicyModal(null)}
-                className="px-4 py-2 bg-[#8E84E4] hover:bg-[#7B71D3] text-white rounded-xl text-xs font-medium transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
+      {/* iOS Safari Add to Home Screen Guide */}
+      {showIOSInstallGuide && (
+        <div
+          className="fixed inset-0 bg-[#0A0E17]/80 backdrop-blur-xs flex items-center justify-center safe-modal-container sm:p-4 z-50 animate-in fade-in duration-100"
+          onClick={() => setShowIOSInstallGuide(false)}
+        >
+          <div
+            className="bg-[#121724] border border-[#1F283C] rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-[#F1F3F7]">Install Mifgash on iPhone / iPad</h3>
+            <p className="text-xs text-[#8D98AF] leading-relaxed">
+              1. Tap the <strong className="text-[#F1F3F7]">Share</strong> icon in Safari&apos;s toolbar.<br />
+              2. Scroll down and tap <strong className="text-[#F1F3F7]">Add to Home Screen</strong>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowIOSInstallGuide(false)}
+              className="w-full py-2 bg-[#8E84E4] hover:bg-[#7B71D3] text-white rounded-xl text-xs font-medium transition-colors cursor-pointer"
+            >
+              Got it
+            </button>
           </div>
         </div>
       )}

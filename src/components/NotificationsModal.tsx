@@ -26,7 +26,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
   return (
     <div
       className={`${
-        isPhoneFrame ? 'absolute' : 'fixed'
+        isPhoneFrame ? 'absolute' : 'fixed safe-top'
       } inset-0 bg-[#0A0E17]/80 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150`}
       onClick={onClose}
     >
@@ -188,7 +188,7 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 border-t border-[#1F283C] bg-[#121724] shrink-0">
+        <div className="p-3 safe-sheet-bottom sm:pb-3 border-t border-[#1F283C] bg-[#121724] shrink-0">
           <button
             type="button"
             onClick={onClose}

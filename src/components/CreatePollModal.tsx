@@ -61,8 +61,8 @@ export const CreatePollModal: React.FC<CreatePollModalProps> = ({
   return (
     <div
       className={`${
-        isPhoneFrame ? 'absolute' : 'fixed'
-      } inset-0 bg-[#0A0E17]/80 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-hidden`}
+        isPhoneFrame ? 'absolute p-2 sm:p-4' : 'fixed safe-modal-container sm:p-4'
+      } inset-0 bg-[#0A0E17]/80 backdrop-blur-xs z-50 flex items-center justify-center overflow-hidden`}
     >
       <div
         className={`bg-[#121724] text-[#F1F3F7] rounded-2xl max-w-md w-full border border-[#1F283C] shadow-2xl flex flex-col overflow-hidden min-h-0 ${

@@ -1,3 +1,5 @@
+import { apiFetch } from '../config/api';
+
 export interface LocationSuggestion {
   displayName: string;
   name: string;
@@ -118,7 +120,7 @@ export async function fetchLocationSuggestions(query: string): Promise<LocationS
       query.trim()
     )}&limit=6&lang=en&lat=${lat}&lon=${lon}`;
 
-    const res = await fetch(photonUrl);
+    const res = await apiFetch(photonUrl);
     if (res.ok) {
       const data = await res.json();
       if (data.features && data.features.length > 0) {
@@ -175,7 +177,7 @@ export async function fetchLocationSuggestions(query: string): Promise<LocationS
         query.trim()
       )}&addressdetails=1&limit=5&countrycodes=us,ca,gb&lat=${lat}&lon=${lon}`;
 
-      const res = await fetch(nomUrl, {
+      const res = await apiFetch(nomUrl, {
         headers: { 'Accept-Language': 'en' },
       });
 
@@ -292,7 +294,7 @@ export async function fetchWeatherForLocation(
         const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
           locationStr
         )}&count=1&language=en&format=json`;
-        const geoRes = await fetch(geoUrl);
+        const geoRes = await apiFetch(geoUrl);
         if (geoRes.ok) {
           const geoData = await geoRes.json();
           if (geoData && geoData.results && geoData.results.length > 0) {
@@ -309,7 +311,7 @@ export async function fetchWeatherForLocation(
           const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
             locationStr
           )}&limit=1`;
-          const nomRes = await fetch(nomUrl);
+          const nomRes = await apiFetch(nomUrl);
           if (nomRes.ok) {
             const nomData = await nomRes.json();
             if (nomData && nomData.length > 0) {
@@ -329,7 +331,7 @@ export async function fetchWeatherForLocation(
 
     // Call Open-Meteo Weather API
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&timezone=auto`;
-    const wRes = await fetch(weatherUrl);
+    const wRes = await apiFetch(weatherUrl);
     if (!wRes.ok) {
       return null;
     }

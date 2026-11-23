@@ -24,7 +24,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
       className={`${
         isPhoneFrame
           ? 'w-full bg-[#0A0E17] border-t border-[#1F283C]/70 px-2 py-1.5 flex items-center justify-around shrink-0 z-30'
-          : 'fixed bottom-0 left-0 right-0 bg-[#0A0E17]/95 backdrop-blur-md border-t border-[#1F283C]/70 z-30 md:hidden px-2 py-1.5 flex items-center justify-around'
+          : 'fixed bottom-0 left-0 right-0 bg-[#0A0E17]/95 backdrop-blur-md border-t border-[#1F283C]/70 z-30 md:hidden pt-1.5 safe-bottom-nav flex items-center justify-around'
       }`}
     >
       {tabs.map((tab) => {

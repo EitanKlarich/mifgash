@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-56 bg-[#0A0E17] border-r border-[#1F283C] flex flex-col h-full shrink-0 hidden md:flex select-none">
+    <aside className="w-56 bg-[#0A0E17] border-r border-[#1F283C] flex flex-col h-full shrink-0 hidden md:flex select-none safe-top safe-bottom">
       {/* Brand Header */}
       <div className="p-4 border-b border-[#1F283C] flex items-center justify-between">
         <div className="flex items-center space-x-2.5 cursor-pointer" onClick={() => setActiveTab('home')}>
